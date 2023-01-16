@@ -1,0 +1,680 @@
+---
+output:
+  html_document:
+    code_download: true
+    theme: cerulean
+    toc: yes
+    toc_depth:  3
+    toc_float:
+      collapsed:  yes
+      smooth_scroll: yes
+    number_sections: yes
+    code_folding:  show
+
+params:
+    ORG: "ActBlue"
+    TAG: "2022"
+
+title : "`r paste('Summarize .fec files for', ORG, 'in', TAG, 'Election Cycle')`"
+author: "Earl F Glynn<br><small>watchdoglab.substack.com</small>"
+date  : "<small>`r Sys.Date()`</small>"
+---
+
+```{r setup, echo = FALSE}
+# http://biostat.mc.vanderbilt.edu/wiki/Main/KnitrHtmlTemplate
+require(Hmisc)    # provides knitrSet and other functions
+knitrSet(lang = 'markdown',   # If using blogdown: knitrSet(lang='blogdown')
+         fig.align = 'left',
+         w = 6.5,
+         h = 4.5,
+         cache = FALSE)
+```
+
+`r hidingTOC(buttonLabel = "Outline")`
+
+```{r setup2, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  comment    = NA)
+
+time.1 <- Sys.time()
+```
+
+Notes:
+
+* Review FEC filings of interest, e.g., [ActBlue FEC filings](https://docquery.fec.gov/cgi-bin/forms/C00401224/)
+
+# Setup {.tabset .tabset-fade .tabset-pills}
+
+##  {.active}
+
+## Constants
+
+```{r}
+EXCEL_LIMIT <- 2^20
+```
+
+```{r}
+ORG <- params$ORG
+TAG <- params$TAG
+```
+
+```{r}
+FEC_FILE_DIR <- paste0("K:/Data-Farm/", ORG, "/")
+
+TARGET_DIR   <- paste0(FEC_FILE_DIR, TAG, "/")
+
+Summary_DIR  <- paste0(TARGET_DIR, "FEC-File-Summaries/")
+
+DELIMITER <- "\t"    # tab delimiter
+```
+
+### SA Header
+
+For now, use `SA` headers slightly modified from `v8.4 e-filing headers .xlsx`
+
+See `C:\efg-Data-Farm-Scripts\FEC\FEC-File-Formats\eFilingFormats\FEC_v8x\e-filing headers all versions.xlsx`
+
+tabsheet `SA`
+
+Compare with v8.4
+
+2023-01-14
+
+```{r}
+scheduleAHeaders <-
+  c("FORM_TYPE",
+    "FILER_COMMITTEE_ID",
+    "TRANSACTION_ID",
+    "BACK_REFERENCE_TRAN_ID",
+    "BACK_REFERENCE_SCHED_NAME",
+    "ENTITY_TYPE",
+    "CONTRIBUTOR_ORGANIZATION_NAME",
+    "CONTRIBUTOR_LAST_NAME",
+    "CONTRIBUTOR_FIRST_NAME",
+    "CONTRIBUTOR_MIDDLE_NAME",
+    "CONTRIBUTOR_PREFIX",
+    "CONTRIBUTOR_SUFFIX",
+    "CONTRIBUTOR_STREET_1",
+    "CONTRIBUTOR_STREET_2",
+    "CONTRIBUTOR_CITY",
+    "CONTRIBUTOR_STATE",
+    "CONTRIBUTOR_ZIP",
+    "ELECTION_CODE",
+    "ELECTION_OTHER_DESCRIPTION",
+    "CONTRIBUTION_DATE",
+    "CONTRIBUTION_AMOUNT",
+    "CONTRIBUTION_AGGREGATE",
+    "CONTRIBUTION_PURPOSE",
+    "CONTRIBUTOR_EMPLOYER",
+    "CONTRIBUTOR_OCCUPATION",
+    "DONOR_COMMITTEE_FEC_ID",
+    "DONOR_COMMITTEE_NAME",
+    "DONOR_CANDIDATE_FEC_ID",
+    "DONOR_CANDIDATE_LAST_NAME",
+    "DONOR_CANDIDATE_FIRST_NAME",
+    "DONOR_CANDIDATE_MIDDLE_NAME",
+    "DONOR_CANDIDATE_PREFIX",
+    "DONOR_CANDIDATE_SUFFIX",
+    "DONOR_CANDIDATE_OFFICE",
+    "DONOR_CANDIDATE_STATE",
+    "DONOR_CANDIDATE_DISTRICT",
+    "CONDUIT_NAME",
+    "CONDUIT_STREET1",
+    "CONDUIT_STREET2",
+    "CONDUIT_CITY",
+    "CONDUIT_STATE",
+    "CONDUIT_ZIP",
+    "MEMO_CODE",
+    "MEMO_TEXT_DESCRIPTION",
+    "Reference")
+```
+
+### SB Header
+
+```{r}
+scheduleBHeaders <-
+  c("FORM_TYPE",
+    "FILER_COMMITTEE_ID",
+    "TRANSACTION_ID",
+    "BACK_REFERENCE_TRAN_ID",
+    "BACK_REFERENCE_SCHED_NAME",
+    "ENTITY_TYPE",
+    "PAYEE_ORGANIZATION_NAME",
+    "PAYEE_LAST_NAME",
+    "PAYEE_FIRST_NAME",
+    "PAYEE_MIDDLE_NAME",
+    "PAYEE_PREFIX",
+    "PAYEE_SUFFIX",
+    "PAYEE_STREET_1",
+    "PAYEE_STREET_2",
+    "PAYEE_CITY",
+    "PAYEE_STATE",
+    "PAYEE_ZIP",
+    "ELECTION_CODE",
+    "ELECTION_OTHER_DESCRIPTION",
+    "EXPENDITURE_DATE",
+    "EXPENDITURE_AMOUNT",
+    "SEMI_ANNUAL_REFUNDED_BUNDLED_AMT",
+    "EXPENDITURE_PURPOSE_DESCRIP",
+    "CATEGORY_CODE",
+    "BENEFICIARY_COMMITTEE_FEC_ID",
+    "BENEFICIARY_COMMITTEE_NAME",
+    "BENEFICIARY_CANDIDATE_FEC_ID",
+    "BENEFICIARY_CANDIDATE_LAST_NAME",
+    "BENEFICIARY_CANDIDATE_FIRST_NAME",
+    "BENEFICIARY_CANDIDATE_MIDDLE_NAME",
+    "BENEFICIARY_CANDIDATE_PREFIX",
+    "BENEFICIARY_CANDIDATE_SUFFIX",
+    "BENEFICIARY_CANDIDATE_OFFICE",
+    "BENEFICIARY_CANDIDATE_STATE",
+    "BENEFICIARY_CANDIDATE_DISTRICT",
+    "CONDUIT_NAME",
+    "CONDUIT_STREET_1",
+    "CONDUIT_STREET_2",
+    "CONDUIT_CITY",
+    "CONDUIT_STATE",
+    "CONDUIT_ZIP",
+    "MEMO_CODE",
+    "MEMO_TEXT_DESCRIPTION",
+    "Reference")
+```
+
+### TEXT headers
+
+```{r}
+textHeaders <-
+  c("REC_TYPE",
+   "FILER_COMMITTEE_ID_NUMBER",
+   "TRANSACTION_ID_NUMBER",
+   "BACK_REFERENCE_TRAN_ID_NUMBER",
+   "BACK_REFERENCE_SCHED_FORM_NAME",
+   "TEXT4000")
+```
+
+## Packages
+
+```{r}
+library(tidyverse)
+
+library(readxl)     # read_xlsx
+library(writexl)    # write_xlsx
+
+library(lubridate)
+
+library(kableExtra)
+library(ggplot2)
+```
+
+## Helper function
+
+```{r}
+Show <- function(data, caption = "", bigMark = "", ...)
+{
+  data                                            %>%
+  kable("html", caption = caption,
+        format.args = list(big.mark = bigMark))   %>%
+  kable_styling(bootstrap_options = c("striped", "bordered", "condensed"),
+                position = "left",
+                full_width = FALSE, ...)
+}
+```
+
+# Daily FEC filings
+
+Source of daily FEC electronic files.
+
+```{r}
+baseDir <- "Z:/$/FEC-Electronic/"
+```
+
+Filter for files tagged with specified tag
+
+```{r}
+fecList <-
+  read_xlsx(paste0(FEC_FILE_DIR, "FEC-Files.xlsx"))  %>%
+  filter(Tag == TAG)                                 %>%                   #####
+  arrange(`Coverage Start Date`)
+
+fecList %>% Show()
+```
+
+Electronic filing dates are often a day after the reported `Filed Date` above. So, let's search for .fec file directory.
+
+Let's verify these FEC files are available locally.
+
+```{r}
+fecFiles <-
+  fecList           %>%
+  mutate(
+          pathName  = paste0(baseDir,
+                             str_sub(`Filed Date`, 1, 4),
+                             "/"),
+          fileName  = paste0(str_replace(`FEC ID`, "FEC-", ""),
+                             ".fec"),
+          fullName  = "",
+          sizeBytes = 0
+        )
+```
+
+Most files are quite large
+
+```{r}
+for (i in 1:nrow(fecFiles))
+{
+  cat(i, fecFiles$pathName[i], fecFiles$fileName[i], "\n")
+  fecFiles$fullName[i] <-
+    list.files(path = fecFiles$pathName[i],
+               pattern = paste0("*", fecFiles$fileName[i]),
+               full.name = TRUE)  %>%  tail(1)  # latest date if more than 1
+  fecFiles$sizeBytes[i] <- file.info(fecFiles$fullName[i])$size[1]
+}
+
+fecFiles %>%
+  select(-pathName)                                       %>%
+  mutate(fullName = str_sub(fullName, nchar(baseDir)+1))  %>%  # avoid html
+  Show(bigMark = ",")
+```
+
+```{r}
+stopifnot( all( file.exists(fecFiles$fullName) ) )
+```
+
+# Summarize records for each file
+
+```{r}
+fecFiles <-
+  fecFiles  %>%
+  mutate(Lines        = 0,
+         SA11AI       = 0,
+         ActBlue      = 0,
+         Earmark      = 0,
+         SA16         = 0,
+         SB21B        = 0,
+         SB23         = 0,
+         SB28A        = 0,
+         SB29         = 0,
+         Contributors = 0,
+         Recipients   = 0,
+         Employers    = 0,
+         FECVersion   = "") %>%
+  relocate(FECVersion)
+```
+
+
+Process all current filings in batch (usually an election cycle)
+
+```{r}
+if (!dir.exists(Summary_DIR))
+{
+  dir.create(Summary_DIR, recursive = TRUE)
+}
+```
+
+```{r}
+options(width = 120)
+for (i in 1:nrow(fecFiles))
+{
+  filename <- fecFiles$fullName[i]
+  FILE_PREFIX <- paste0(Summary_DIR,
+                        "FEC-", gsub(".fec", "", basename(filename)))
+
+  d <- read_lines(filename)
+  fecFiles$Lines[i] <- length(d)
+
+  SEP = substr(d[1],4,4)
+
+  fecFiles$FECVersion[i] <-
+    paste(word(d[1], 2, 2, sep = SEP),
+          word(d[1], 3, 3, sep = SEP))
+
+  committeeNumber <- word(d[2], 2, 2, sep = SEP)
+  committeeName   <- gsub(" ", "-", word(d[2], 3, 3, sep = SEP))
+  filing          <- fecFiles$fullName[i]
+  cat("\n----------\n",
+      length(d), committeeName, committeeNumber, filing, "\n")
+  cat(d[1], "\n")
+
+  # formType <- word(d, 1,1, sep = fixed(SEP))                # VERY memory inefficient
+  # formType <- unlist( sapply(strsplit(d, SEP), "[", 1) )    # slow
+  # formType <- substr(d, 1, 8)                               # not good enough but fast
+  formType <-substr(d, 1, regexpr(SEP,d) - 1)                 # good enough
+
+  recordCounts <- table(formType, useNA = "ifany")
+  print(recordCounts)
+
+  fecFiles$SA11AI[i] <- recordCounts["SA11AI"]
+  fecFiles$SA16[i]   <- recordCounts["SA16"]
+  fecFiles$SB21B[i]  <- recordCounts["SB21B"]
+  fecFiles$SB23[i]   <- recordCounts["SB23"]
+  fecFiles$SB28A[i]  <- recordCounts["SB28A"]
+  fecFiles$SB29[i]   <- recordCounts["SB29"]
+
+  # SA11AI - Individuals, Itemized receipts
+  dSubset <- d[formType == "SA11AI"]
+
+  TEMPFILE <- "TempFile.txt"   # KLUDGE FOR NOW
+  write_lines(dSubset, TEMPFILE)
+  nLines <- length(dSubset)
+  remove(dSubset)
+
+  SA11AI <-
+    read_delim(TEMPFILE,
+               col_names = FALSE,
+               delim = SEP,
+               quote = "",
+               col_types = cols(.default = "c"),
+               guess_max = nLines)
+
+  print( dim(SA11AI) )
+
+  file.remove(TEMPFILE)
+
+  names(SA11AI) <- scheduleAHeaders
+
+  print(table(SA11AI$ENTITY_TYPE, useNA = "ifany"))
+
+  purposeCounts <- table(SA11AI$CONTRIBUTION_PURPOSE, useNA = "ifany")
+  print(table(SA11AI$CONTRIBUTION_PURPOSE, useNA = "ifany"))
+
+  fecFiles$ActBlue[i] <- purposeCounts["Contribution to Act Blue"]
+  fecFiles$Earmark[i] <- purposeCounts["Earmark"]
+
+  # Raw Data
+
+  SA11AI <-
+    SA11AI  %>%
+    select(-FORM_TYPE,                 # Try to save some memory
+           -FILER_COMMITTEE_ID,
+           -CONTRIBUTION_AGGREGATE,
+           -starts_with("DONOR_C"),
+           -starts_with("CONDUIT_"),
+           -Reference)                                             %>%
+    mutate(Source = basename(fecFiles$fullName[i]),
+           CONTRIBUTION_AMOUNT = as.numeric(CONTRIBUTION_AMOUNT),
+           CONTRIBUTION_PURPOSE  = ifelse(is.na(CONTRIBUTION_PURPOSE ), "-missing-", CONTRIBUTION_PURPOSE),
+           MEMO_TEXT_DESCRIPTION = ifelse(is.na(CONTRIBUTION_PURPOSE ), "-missing-", MEMO_TEXT_DESCRIPTION),
+           CONTRIBUTOR_EMPLOYER  = ifelse(is.na(CONTRIBUTOR_EMPLOYER ), "-missing-", CONTRIBUTOR_EMPLOYER)
+          )
+
+  print( nrow(SA11AI) )
+  write_delim(SA11AI, paste0(FILE_PREFIX, "-", ORG, "-SA11AI-Contribution-Details.txt"),
+              delim = SEP, escape = "none") # Too large for Excel in general
+
+  # Summary by Contributor
+
+  contributors <-
+    SA11AI                       %>%
+    group_by(CONTRIBUTOR_LAST_NAME,
+             CONTRIBUTOR_FIRST_NAME,
+             CONTRIBUTOR_MIDDLE_NAME,
+             CONTRIBUTOR_PREFIX,
+             CONTRIBUTOR_SUFFIX,
+             CONTRIBUTOR_STREET_1,
+             CONTRIBUTOR_STREET_2,
+             CONTRIBUTOR_CITY,
+             CONTRIBUTOR_STATE,
+             CONTRIBUTOR_ZIP)    %>%
+    summarize(nRecord            = n(),
+              minContribution    = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              maxContribution    = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              medianContribution = median(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              Total              = sum(CONTRIBUTION_AMOUNT),
+              Occupation         = str_flatten(sort(unique(CONTRIBUTOR_OCCUPATION)), collapse = "|"),
+              Employer           = str_flatten(sort(unique(CONTRIBUTOR_EMPLOYER)),   collapse = "|"),
+              Start              = min(CONTRIBUTION_DATE, na.rm = TRUE),
+              End                = max(CONTRIBUTION_DATE, na.rm = TRUE),
+              nRecipient         = n_distinct(MEMO_TEXT_DESCRIPTION),
+              .groups = "drop"
+             )                   %>%
+    ungroup()                    %>%
+    mutate(
+            Days   = as.numeric( ymd(End) - ymd(Start) + 1 ),
+            PerDay = round(nRecord / Days, 2)
+          )                      %>%
+    select(nRecord,
+           min    = minContribution,
+           max    = maxContribution,
+           median = medianContribution,
+           Total,
+           Start, End,
+           Days, PerDay,
+           nRecipient,
+           everything())         %>%
+    arrange(-nRecord)
+
+  print(nrow(contributors))
+  fecFiles$Contributors[i] <- nrow(contributors)
+
+  write_delim(contributors, paste0(FILE_PREFIX, "-", ORG, "-SA11AI-Contributors.txt"),
+              delim = SEP, escape = "none")
+
+  remove(contributors)
+
+  # Summary by Recipient
+
+  overallTotals <-
+    SA11AI                        %>%
+    summarize(nRecord             = n(),
+               nRecipient         = n_distinct(MEMO_TEXT_DESCRIPTION),
+               minContribution    = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+               maxContribution    = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+               medianContribution = median(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+               Total              = sum(CONTRIBUTION_AMOUNT),
+               nOccupation        = n_distinct(CONTRIBUTOR_OCCUPATION),
+               nEmployer          = n_distinct(CONTRIBUTOR_EMPLOYER),
+               Start              = min(CONTRIBUTION_DATE, na.rm = TRUE),
+               End                = max(CONTRIBUTION_DATE, na.rm = TRUE),
+              )
+
+  overallTotals %>%
+    Show(bigMark = ",")
+
+  # Recipients
+  recipients <-
+    SA11AI  %>%
+    group_by(CONTRIBUTION_PURPOSE, MEMO_TEXT_DESCRIPTION)  %>%
+    summarize(nRecord            = n(),
+              minContribution    = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              maxContribution    = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              medianContribution = median(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              Total              = sum(CONTRIBUTION_AMOUNT),
+              nOccupation        = n_distinct(CONTRIBUTOR_OCCUPATION),
+              nEmployer          = n_distinct(CONTRIBUTOR_EMPLOYER),
+              Start              = min(CONTRIBUTION_DATE, na.rm = TRUE),
+              End                = max(CONTRIBUTION_DATE, na.rm = TRUE),
+              .groups = "drop"
+             )                   %>%
+    ungroup()                    %>%
+    mutate(
+           Days   = as.numeric( ymd(End) - ymd(Start) + 1 ),
+           PerDay = round(nRecord / Days, 2)
+          )                          %>%
+    select(nRecord,
+           min    = minContribution,
+           max    = maxContribution,
+           median = medianContribution,
+           Total,
+           nOccupation, nEmployer,
+           Start, End,
+           Days, PerDay,
+           CONTRIBUTION_PURPOSE, MEMO_TEXT_DESCRIPTION)   %>%
+    arrange(CONTRIBUTION_PURPOSE, MEMO_TEXT_DESCRIPTION)
+
+  print( nrow(recipients) )
+  fecFiles$Recipients[i] <- nrow(recipients)
+
+  recipients <-
+    bind_rows(recipients,
+              bind_cols(nRecord      = overallTotals$nRecord,
+                        min          = overallTotals$minContribution,
+                        max          = overallTotals$maxContribution,
+                        median       = overallTotals$medianContribution,
+                        Total        = overallTotals$Total,
+                        nOccupation  = overallTotals$nOccupation,
+                        nEmployer    = overallTotals$nEmployer,
+                        Start        = overallTotals$Start,
+                        End          = overallTotals$End,
+                        Days         = as.numeric( ymd(overallTotals$End) -
+                                                   ymd(overallTotals$Start) + 1 ),
+                        PerDay       = round(overallTotals$nRecord /
+                                             as.numeric( ymd(overallTotals$End) -
+                                                   ymd(overallTotals$Start) + 1 ),
+                                             2),
+                        MEMO_TEXT_DESCRIPTION = "TOTAL / Overall")) %>%
+    arrange(-nRecord)
+
+  write_xlsx(recipients, paste0(FILE_PREFIX, "-", ORG, "-SA11AI-Recipients.xlsx"))
+  remove(recipients)
+
+  # Standardization
+
+  employers <-
+    SA11AI                          %>%
+    mutate(CONTRIBUTOR_EMPLOYER =
+             recode(CONTRIBUTOR_EMPLOYER,
+                     "NOT EMPLOYED"       = "*NOT EMPLOYED",
+                     "UNEMPLOYED"         = "*NOT EMPLOYED",
+                     "NOT-EMPLOYED"       = "*NOT EMPLOYED",
+                     "NONE"               = "*NOT EMPLOYED",
+                     "NONENONE"           = "*NOT EMPLOYED",
+
+                     "RETIRED"            = "*RETIRED",
+                     "RET"                = "*RETIRED",
+                     "RETIRED TEACHER"    = "*RETIRED",
+
+                     "SELF EMPLOYED"      = "*SELF EMPLOYED",
+                     "SELF-EMPLOYED"      = "*SELF EMPLOYED",
+
+                     "MYSELF"             = "*SELF",
+                     "SELF"               = "*SELF",
+
+                     "N/A"                = "-missing-",
+
+                     "FEDERAL GOVERNMENT" = "*US GOVERNMENT",
+                     "US GOVERNMENT"      = "*US GOVERNMENT",
+                     "US GOVT"            = "*US GOVERNMENT",
+
+                     "USPS"               = "*US POSTAL SERVICE",
+                     "US POSTAL SERVICE"  = "*US POSTAL SERVICE",
+
+                     "HOME DEPOT"                = "*HOME DEPOT",
+                     "HOME-DEPOT"                = "*HOME DEPOT",
+                     "THE HOME DEPOT"            = "*HOME DEPOT",
+                     "THE HOME DEPOT USA"        = "*HOME DEPOT",
+                     "HOME DEPOT (CORPORATE HQ)" = "*HOME DEPOT",
+                     "HOME DEPOT PRO"            = "*HOME DEPOT"
+                   ),
+
+           CONTRIBUTOR_OCCUPATION =
+            recode(CONTRIBUTOR_OCCUPATION,
+                     "N/A"                = "-missing-"
+                  )
+          )                         %>%
+
+    # Employer Summary
+
+    group_by(CONTRIBUTOR_EMPLOYER)  %>%
+    summarize(nRecord            = n(),
+              minContribution    = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              maxContribution    = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              medianContribution = median(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              Total              = sum(CONTRIBUTION_AMOUNT),
+              nOccupation        = n_distinct(CONTRIBUTOR_OCCUPATION),
+              Start              = min(CONTRIBUTION_DATE, na.rm = TRUE),
+              End                = max(CONTRIBUTION_DATE, na.rm = TRUE),
+              .groups = "drop"
+             )                       %>%
+    ungroup()                        %>%
+    mutate(
+           Days   = as.numeric( ymd(End) - ymd(Start) + 1 ),
+           PerDay = round(nRecord / Days, 2)
+          )                          %>%
+    select(CONTRIBUTOR_EMPLOYER,
+           nRecord,
+           min    = minContribution,
+           max    = maxContribution,
+           median = medianContribution,
+           Total,
+           nOccupation,
+           Start, End,
+           Days, PerDay)   %>%
+    arrange(-nRecord)
+
+  print( nrow(employers) )
+  fecFiles$Employers[i] <- nrow(employers)
+
+  write_xlsx(employers, paste0(FILE_PREFIX, "-", ORG, "-SA11AI-Employers.xlsx"))
+  remove(employers)
+
+  remove(SA11AI)
+
+  # Disbursements
+
+  ## Itemized Disbursements
+  disbursementsFields <- paste(scheduleBHeaders,collapse = SEP)
+
+  dDisbursements <- d[formType == "SB21B"]
+  if (length(dDisbursements) > 0)
+  {
+    write_lines(c(disbursementsFields, dDisbursements),
+                paste0(FILE_PREFIX, "-", ORG, "-SB21B-Itemized-Disbursements.txt"))
+  }
+
+  ## Political Contributions
+  dPolitical <- d[formType == "SB23"]
+  if (length(dPolitical) > 0)
+  {
+    write_lines(c(disbursementsFields, dPolitical),
+                paste0(FILE_PREFIX, "-", ORG, "-SB23-Political-Contributions.txt"))
+  }
+
+  ## Other Disbursements
+  dOther <- d[formType == "SB29"]
+  if (length(dOther) > 0)
+  {
+    write_lines(c(disbursementsFields, dOther),
+                paste0(FILE_PREFIX, "-", ORG, "-SB29-Other-Disbursements.txt"))
+  }
+
+  # TEXT records
+  dText <- d[formType == "TEXT"]
+  if (length(dText) > 0)
+  {
+    write_lines(c(paste(textHeaders, collapse = SEP),
+                  dText),
+                paste0(FILE_PREFIX, "-", ORG, "-TEXT.txt"))
+   }
+
+  remove(d, formType, dText, dDisbursements, dPolitical, dOther)
+}
+```
+
+```{r}
+write_xlsx(fecFiles,
+           paste0(TARGET_DIR, "Target-Files-", TAG, ".xlsx"))
+```
+
+# Fini {.tabset .tabset-fade .tabset-pills}
+
+## {.active}
+
+## Session Info
+
+```{r epilogSessionInfo}
+devtools::session_info()
+```
+
+</div>
+
+```{r, echo=FALSE}
+time.2 <- Sys.time()
+processingTime <- paste("Processing time:",
+                        sprintf("%.1f",
+                                as.numeric(difftime(time.2, time.1,
+                                                    units="secs"))), "secs\n")
+```
+
+`r processingTime`
+
+`r format(Sys.time(), "%Y-%m-%d %H:%M")`

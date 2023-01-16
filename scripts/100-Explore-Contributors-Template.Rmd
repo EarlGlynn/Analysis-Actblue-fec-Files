@@ -1,0 +1,1062 @@
+---
+output:
+  html_document:
+    code_download: true
+    theme: cerulean
+    toc: yes
+    toc_depth:  3
+    toc_float:
+      collapsed:  yes
+      smooth_scroll: yes
+    number_sections: yes
+    code_folding:  show
+params:
+    ORG: "ActBlue"
+    TAG: "2022"
+
+title : "`r paste('Explore Contribution Records:', ORG, 'in', TAG, 'Election Cycle')`"
+author: "Earl F Glynn<br><small>watchdoglab.substack.com</small>"
+date  : "<small>`r Sys.Date()`</small>"
+---
+
+```{r setup, echo = FALSE}
+# http://biostat.mc.vanderbilt.edu/wiki/Main/KnitrHtmlTemplate
+require(Hmisc)    # provides knitrSet and other functions
+knitrSet(lang = 'markdown',   # If using blogdown: knitrSet(lang='blogdown')
+         fig.align = 'left',
+         w = 6.5,
+         h = 4.5,
+         cache = FALSE)
+```
+
+`r hidingTOC(buttonLabel = "Outline")`
+
+```{r setup2, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  comment    = NA)
+
+time.1 <- Sys.time()
+```
+
+# Setup {.tabset .tabset-fade .tabset-pills}
+
+##  {.active}
+
+## Constants
+
+```{r}
+EXCEL_LIMIT <- 2^20
+```
+
+```{r}
+ORG <- params$ORG
+TAG <- params$TAG
+```
+
+```{r}
+TARGET_DIR  <- paste0("K:/Data-Farm/", ORG, "/", TAG, "/")
+SUMMARY_DIR <- paste0(TARGET_DIR, "FEC-File-Summaries/")
+```
+
+```{r}
+EXPLORE_DIR <- paste0(TARGET_DIR, "Explorations/")
+
+if (!dir.exists(EXPLORE_DIR))
+{
+  dir.create(EXPLORE_DIR, recursive = TRUE)
+}
+```
+
+## Packages
+
+```{r}
+library(tidyverse)
+
+library(readxl)     # read_xlsx
+library(writexl)    # write_xlsx
+
+library(kableExtra)
+library(ggplot2)
+
+library(lubridate)  # ymd
+```
+
+## Helper function
+
+```{r}
+Show <- function(data, caption = "", bigMark = "", ...)
+{
+  data                                            %>%
+  kable("html", caption = caption,
+        format.args = list(big.mark = bigMark))   %>%
+  kable_styling(bootstrap_options = c("striped", "bordered", "condensed"),
+                position = "left",
+                full_width = FALSE, ...)
+}
+```
+
+# Contributor Summary
+
+SA11AI:  FEC Form F3X, Schedule A, Line 11 [*Contributions (other than loans) From*], (a) "Individuals/Persons Other Than Political Committees", (i) Itemized
+
+```{r}
+readDetails <- function(filename)
+{
+  d <-
+     read_delim(filename,
+               delim = "\034",
+               quote = "",
+               col_types = cols(.default = "c"))
+
+  d
+}
+```
+
+```{r}
+contributorDetail <- list.files(path    = SUMMARY_DIR,
+                                pattern = "*-Contribution-Details.txt", full.names = TRUE)
+length(contributorDetail)
+```
+
+```{r}
+basename(contributorDetail)
+```
+
+```{r}
+singleContributor <-
+  contributorDetail  %>%
+  map_df(readDetails)
+
+dim(singleContributor)
+```
+
+```{r}
+singleContributor <-
+  singleContributor  %>%
+  mutate(CONTRIBUTION_AMOUNT = as.numeric(CONTRIBUTION_AMOUNT),
+         
+         FullName = paste(CONTRIBUTOR_LAST_NAME, 
+                          CONTRIBUTOR_FIRST_NAME, 
+                          CONTRIBUTOR_MIDDLE_NAME,
+                          CONTRIBUTOR_STREET_1,  
+                          CONTRIBUTOR_CITY,
+                          CONTRIBUTOR_STATE,
+                          CONTRIBUTOR_ZIP,
+                          sep = "|"),
+         
+         FullAddress = paste(CONTRIBUTOR_STREET_1, 
+                             CONTRIBUTOR_STREET_2,  
+                             CONTRIBUTOR_CITY,
+                             CONTRIBUTOR_STATE,
+                             CONTRIBUTOR_ZIP,
+                             sep = "|"),
+         
+         CONTRIBUTOR_EMPLOYER   =
+           recode(CONTRIBUTOR_EMPLOYER,
+               "NOT EMPLOYED"           = "*NOT EMPLOYED",
+               "UNEMPLOYED"             = "*NOT EMPLOYED",
+               "NONE"                   = "*NOT EMPLOYED",
+               "NONENONE"               = "*NOT EMPLOYED",
+               "NONENOT EMPLOYED"       = "*NOT EMPLOYED",
+               "NOT-EMPLOYED"           = "*NOT EMPLOYED",
+               "NOT EMPLOYED NONE"      = "*NOT EMPLOYED",
+               "NOT EMPLOYED NOW"       = "*NOT EMPLOYED",
+               "CURRENTLY NOT EMPLOYED" = "*NOT EMPLOYED",
+               
+               "RETIRED"                 = "*RETIRED",
+               "RET"                     = "*RETIRED",
+               "RETIRED TEACHER"         = "*RETIRED",
+               "NOT EMPLOYED/RETIRED"    = "*RETIRED",
+               "NOT EMPLOYED-RETIRED"    = "*RETIRED",
+               "NOT EMPLOYED - RETIRED"  = "*RETIRED",
+               "NOT EMPLOYED  (RETIRED)" = "*RETIRED",
+               "NOT EMPLOYED / RETIRED"  = "*RETIRED",
+               "NOT EMPLOYEDRETIRED"     = "*RETIRED",
+               "RETIRED - NOT EMPLOYED"  = "*RETIRED",
+               "RETIRED NOT EMPLOYED"    = "*RETIRED",
+               "RETIRED, NOT EMPLOYED"   = "*RETIRED",
+              
+
+               "SELF EMPLOYED"      = "*SELF EMPLOYED",
+               "SELF-EMPLOYED"      = "*SELF EMPLOYED",
+               "SELF- EMPLOYED"     = "*SELF EMPLOYED",
+               "SELF EMPLOYEED"     = "*SELF EMPLOYED",
+               "SELFEMPLOYED"       = "*SELF EMPLOYED",
+               "SELF EMPLOY"        = "*SELF EMPLOYED",
+               "SELF - EMPLOYED"    = "*SELF EMPLOYED",
+               "MYSELF"             = "*SELF EMPLOYED",
+               "SELF"               = "*SELF EMPLOYED",
+
+               "N/A"                = "-missing-",
+
+               "FEDERAL GOVERNMENT" = "*US GOVERNMENT",
+               "US GOVERNMENT"      = "*US GOVERNMENT",
+               "US GOVT"            = "*US GOVERNMENT",
+               "FEDERAL GOVT"       = "*US GOVERNMENT",
+               "FED GOVT"           = "*US GOVERNMENT",
+               "U.S. GOVT"          = "*US GOVERNMENT",
+               "US FEDERAL GOVT"    = "*US GOVERNMENT",
+               "FED  GOVT"          = "*US GOVERNMENT",
+               "U.S. GOVT."         = "*US GOVERNMENT",
+               "U S GOVT"           = "*US GOVERNMENT",
+
+               "USPS"                         = "*US POSTAL SERVICE",
+               "US POSTAL SERVICE"            = "*US POSTAL SERVICE",
+               "UNITED STATES POSTAL SERVICE" = "*US POSTAL SERVICE",
+               "U.S. POSTAL SERVICE"          = "*US POSTAL SERVICE",
+               "U S POSTAL SERVICE"           = "*US POSTAL SERVICE",
+              
+               "GOOGLE"             = "*GOOGLE",
+               "GOOGLE, INC."       = "*GOOGLE",
+               "GOOGLE LLC"         = "*GOOGLE",
+               "GOOGLE INC."        = "*GOOGLE",
+               "GOOGLE INC"         = "*GOOGLE",
+               "GOOGLE, LLC"        = "*GOOGLE",
+               "GOOGLE, INC"        = "*GOOGLE",
+              
+               "FACEBOOK"                 = "*FACEBOOK / META",
+               "FACEBOOK, INC"            = "*FACEBOOK / META",
+               "FACEBOOK, INC."           = "*FACEBOOK / META",
+               "FACEBOOK INC"             = "*FACEBOOK / META",
+               "FACEBOOK INC."            = "*FACEBOOK / META",
+               "FACEBOOK. INC."           = "*FACEBOOK / META",
+               "META PLATFORMS/FACEBOOK"  = "*FACEBOOK / META",
+               "META"                     = "*FACEBOOK / META",
+               "META INC"                 = "*FACEBOOK / META",
+               "META PLATFORMS"           = "*FACEBOOK / META",
+              
+               "MICROSOFT"                = "*MICROSOFT",
+               "MICROSOFT CORPORATION"    = "*MICROSOFT",
+               "MICROSOFT CORP"           = "*MICROSOFT",
+               "MICROSOFT CORP."          = "*MICROSOFT",
+               "MICROSOFT, INC."          = "*MICROSOFT",
+               "MICROSOFT, CORP."         = "*MICROSOFT",
+              
+               "TWITTER"                  = "*TWITTER",
+               "TWITTER, INC."            = "*TWITTER",
+               "TWITTER INC."             = "*TWITTER",
+               "TWITTER, INC"             = "*TWITTER",
+               "TWITTER INC"              = "*TWITTER",
+
+               "HOME DEPOT"                   = "*HOME DEPOT",
+               "HOME-DEPOT"                   = "*HOME DEPOT",
+               "THE HOME DEPOT"               = "*HOME DEPOT",
+               "THE HOME DEPOT USA"           = "*HOME DEPOT",
+               "HOME DEPOT (CORPORATE HQ)"    = "*HOME DEPOT",
+               "HOME DEPOT PRO"               = "*HOME DEPOT"
+             ),
+
+         CONTRIBUTOR_OCCUPATION =
+          recode(CONTRIBUTOR_OCCUPATION,
+                   "N/A"                = "-missing-"
+                )
+        )                        
+```
+
+```{r}
+glimpse(singleContributor)
+```
+
+## Overall Counts
+
+```{r}
+OverallStats <-
+  singleContributor  %>%
+  summarize(
+              n              = n(),
+              
+              totalAmount    = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              minAmount      = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              maxAmount      = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+              minDate        = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+              maxDate        = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+
+              nTranID        = n_distinct(TRANSACTION_ID),
+              nBackTranID    = n_distinct(BACK_REFERENCE_TRAN_ID),
+              nBackRef       = n_distinct(BACK_REFERENCE_SCHED_NAME),
+
+              nOrgName       = n_distinct(CONTRIBUTOR_ORGANIZATION_NAME),
+              nFullName      = n_distinct(FullName),
+              nLastName      = n_distinct(CONTRIBUTOR_LAST_NAME),
+              nFirstName     = n_distinct(CONTRIBUTOR_FIRST_NAME),
+              nMiddleName    = n_distinct(CONTRIBUTOR_MIDDLE_NAME),
+              nPrefix        = n_distinct(CONTRIBUTOR_PREFIX),
+              nSuffix        = n_distinct(CONTRIBUTOR_SUFFIX),
+
+              nStreet1       = n_distinct(CONTRIBUTOR_STREET_1),
+              nStreet2       = n_distinct(CONTRIBUTOR_STREET_2),
+              nCity          = n_distinct(CONTRIBUTOR_CITY),
+              nState         = n_distinct(CONTRIBUTOR_STATE),
+              nZip           = n_distinct(CONTRIBUTOR_ZIP),
+
+              nElectionCode  = n_distinct(ELECTION_CODE),
+              nElectionOther = n_distinct(ELECTION_OTHER_DESCRIPTION),
+
+              nDate          = n_distinct(CONTRIBUTION_DATE),
+              nAmount        = n_distinct(CONTRIBUTION_AMOUNT),
+              nPurpose       = n_distinct(CONTRIBUTION_PURPOSE),
+              nEmployers     = n_distinct(CONTRIBUTOR_EMPLOYER),
+              nOccupations   = n_distinct(CONTRIBUTOR_OCCUPATION),
+
+              nMemoCode      = n_distinct(MEMO_CODE),
+              nEarmarks      = n_distinct(MEMO_TEXT_DESCRIPTION),  # Earmarks
+              nSource        = n_distinct(Source)
+           )
+
+OverallStats %>% Show(bigMark = ",")
+```
+
+```{r}
+write_xlsx(OverallStats, paste0(EXPLORE_DIR, ORG, "-", TAG, "-Overall-Counts.xlsx"))
+```
+
+## First few
+
+```{r}
+singleContributor %>% head(2) %>% Show()
+```
+
+## Last few
+
+```{r}
+singleContributor %>% tail(2) %>% Show()
+```
+
+# Fields
+
+## TRANSACTION_ID
+
+```{r}
+c( min(singleContributor$TRANSACTION_ID), max(singleContributor$TRANSACTION_ID) )
+```
+
+field length
+
+```{r}
+table(nchar(singleContributor$TRANSACTION_ID))
+```
+
+Why two field lengths for `TRANSACTION_ID`?
+
+## BACK_REFERENCE_TRAN_ID
+
+```{r}
+sum(is.na(singleContributor$BACK_REFERENCE_TRAN_ID))
+```
+
+## BACK_REFERENCE_SCHED_NAME
+
+```{r}
+sum(is.na(singleContributor$BACK_REFERENCE_SCHED_NAME))
+```
+
+## ENTITY_TYPE
+
+```{r}
+table(singleContributor$ENTITY_TYPE)
+```
+
+## CONTRIBUTOR_ORGANIZATION_NAME
+
+```{r}
+sum(is.na(singleContributor$CONTRIBUTOR_ORGANIZATION_NAME))
+```
+
+```{r}
+orgs <-
+  singleContributor                       %>%
+  group_by(CONTRIBUTOR_ORGANIZATION_NAME) %>%
+  count()                                 %>%
+  ungroup()
+```
+
+```{r}
+if (nrow(orgs) > 10)
+{
+  write_xlsx(orgs, paste0(EXPLORE_DIR, ORG, "-", TAG, "-Orgs.xlsx"))
+} else {
+  orgs %>% Show(bigMark = ",")
+}
+```
+
+## CONTRIBUTOR_LAST_NAME
+
+field length
+
+```{r}
+table(nchar(singleContributor$CONTRIBUTOR_LAST_NAME), useNA = "ifany")
+```
+
+```{r}
+lastNames <-
+  singleContributor               %>%
+  group_by(CONTRIBUTOR_LAST_NAME) %>%
+  summarize(nRecord      = n(),
+            TotalAmount  = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minAmount    = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            maxAmount    = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minDate      = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+            maxDate      = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+            nEmployers   = n_distinct(CONTRIBUTOR_EMPLOYER),
+            nOccupations = n_distinct(CONTRIBUTOR_OCCUPATION),  
+            nEarmarks    = n_distinct(MEMO_TEXT_DESCRIPTION),
+            .groups = "drop")     %>%
+  ungroup()                       %>%
+  arrange(-TotalAmount)
+
+nrow(lastNames)
+```
+
+```{r}
+lastNames %>% head(20) %>% Show()
+```
+
+Might be more than a million
+
+```{r}
+write_csv(lastNames,
+          paste0(EXPLORE_DIR, ORG, "-", TAG, "-LastNames.csv"),
+          quote = "all")
+```
+
+## CONTRIBUTOR_FIRST_NAME
+
+field length
+
+```{r}
+table(nchar(singleContributor$CONTRIBUTOR_FIRST_NAME), useNA = "ifany")
+```
+
+```{r}
+firstNames <-
+  singleContributor                %>%
+  group_by(CONTRIBUTOR_FIRST_NAME) %>%
+  summarize(nRecord      = n(),
+            TotalAmount  = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minAmount    = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            maxAmount    = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minDate      = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+            maxDate      = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+            nEmployers   = n_distinct(CONTRIBUTOR_EMPLOYER),
+            nOccupations = n_distinct(CONTRIBUTOR_OCCUPATION),   
+            nEarmarks    = n_distinct(MEMO_TEXT_DESCRIPTION),
+            .groups = "drop")      %>%
+  ungroup()                        %>%
+  arrange(-TotalAmount)
+
+nrow(firstNames)
+```
+
+```{r}
+firstNames %>% head() %>% Show()
+```
+
+Might be more than a million
+
+```{r}
+write_csv(firstNames,
+          paste0(EXPLORE_DIR, ORG, "-", TAG, "-FirstNames.csv"),
+          quote = "all")
+```
+
+## CONTRIBUTOR_MIDDLE_NAME
+
+field length
+
+```{r}
+table(nchar(singleContributor$CONTRIBUTOR_MIDDLE_NAME), useNA = "ifany")
+```
+
+```{r}
+middleNames <-
+  singleContributor                 %>%
+  group_by(CONTRIBUTOR_MIDDLE_NAME) %>%
+  summarize(nRecord     = n(),
+            TotalAmount = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minAmount   = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            maxAmount   = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minDate     = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+            maxDate     = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+            nEmployers   = n_distinct(CONTRIBUTOR_EMPLOYER),
+            nOccupations = n_distinct(CONTRIBUTOR_OCCUPATION),  
+            nEarmarks   = n_distinct(MEMO_TEXT_DESCRIPTION),
+            .groups = "drop")       %>%
+  ungroup()                         %>%
+  arrange(-TotalAmount)
+
+nrow(middleNames)
+```
+
+```{r}
+if (nrow(middleNames) > 2)
+{
+  write_csv(middleNames, paste0(EXPLORE_DIR, ORG, "-", TAG, "-MiddleNames.csv"))
+} else {
+  middleNames %>% Show()
+}
+```
+
+## FullName
+
+```{r}
+FullName <-
+  singleContributor     %>%
+  group_by(FullName)    %>%
+  summarize(nRecord     = n(),
+            TotalAmount = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minAmount   = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            maxAmount   = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minDate     = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+            maxDate     = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+            Employer    = str_flatten(sort(unique(CONTRIBUTOR_EMPLOYER)),   collapse = "|"),
+            Occupation  = str_flatten(sort(unique(CONTRIBUTOR_OCCUPATION)), collapse = "|"),
+            nEarmarks   = n_distinct(MEMO_TEXT_DESCRIPTION),
+            .groups = "drop")       %>%
+  ungroup()                         
+
+print( nrow(FullName) )
+```
+
+Might be more than a million
+
+Sort descending by Total Amount
+
+```{r}
+write_csv(FullName %>% arrange(-TotalAmount), 
+          paste0(EXPLORE_DIR, ORG, "-", TAG, "-FullNames-by-TotalAmount.csv"))
+```
+
+Sort descending by number of contributions
+
+```{r}
+write_csv(FullName %>% arrange(-nRecord), 
+          paste0(EXPLORE_DIR, ORG, "-", TAG, "-FullNames-by-NumberOfContributions.csv"))
+```
+
+## FullAddress
+
+```{r}
+FullAddress <-
+  singleContributor      %>%
+  group_by(FullAddress)  %>%
+  summarize(nRecord      = n(),
+            TotalAmount  = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minAmount    = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            maxAmount    = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minDate      = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+            maxDate      = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+            nFullName    = n_distinct(FullName),
+            nEmployers   = n_distinct(CONTRIBUTOR_EMPLOYER),
+            nOccupations = n_distinct(CONTRIBUTOR_OCCUPATION),   
+            nEarmarks    = n_distinct(MEMO_TEXT_DESCRIPTION),
+            .groups      = "drop"
+           )             %>%
+  ungroup()              %>%
+  arrange(-TotalAmount)
+
+nrow(FullAddress)
+```
+
+Might be more than a million
+
+```{r}
+write_csv(FullAddress, paste0(EXPLORE_DIR, ORG, "-", TAG, "-FullAddress.csv"))
+```
+                                                                             
+## CONTRIBUTOR_PREFIX
+
+```{r}
+sum(is.na(singleContributor$CONTRIBUTOR_PREFIX))
+```
+
+## CONTRIBUTOR_SUFFIX
+
+```{r}
+sum(is.na(singleContributor$CONTRIBUTOR_SUFFIX))
+```
+
+## CONTRIBUTOR_STREET_1
+
+field length
+
+```{r}
+table(nchar(singleContributor$CONTRIBUTOR_STREET_1), useNA = "ifany")
+```
+
+```{r}
+sum(is.na(singleContributor$CONTRIBUTOR_STREET_1))
+```
+
+```{r}
+street1 <-
+  singleContributor              %>%
+  group_by(CONTRIBUTOR_STREET_1) %>%
+  summarize(nRecord      = n(),
+            TotalAmount  = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minAmount    = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            maxAmount    = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minDate      = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+            maxDate      = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+            nName        = n_distinct(FullName),
+            nEmployers   = n_distinct(CONTRIBUTOR_EMPLOYER),
+            nOccupations = n_distinct(CONTRIBUTOR_OCCUPATION),    
+            nEarmarks    = n_distinct(MEMO_TEXT_DESCRIPTION),
+            .groups = "drop"   
+           )                     %>%
+  ungroup()                      %>%
+  arrange(-TotalAmount)
+
+nrow(street1)
+```
+
+```{r}
+street1 %>% head() %>% Show()
+```
+
+
+Might be more than a million?
+
+```{r}
+write_csv(street1,
+          paste0(EXPLORE_DIR, ORG, "-", TAG, "-Street1.csv"),
+          quote = "all")
+```
+
+## CONTRIBUTOR_STREET_2
+
+```{r}
+sum(is.na(singleContributor$CONTRIBUTOR_STREET_2))
+```
+
+```{r}
+sum(is.na(singleContributor$CONTRIBUTOR_STREET_2))
+```
+
+## CONTRIBUTOR_CITY
+
+## CONTRIBUTOR_STATE
+
+```{r}
+table(singleContributor$CONTRIBUTOR_STATE, useNA = "ifany")
+```
+
+## CONTRIBUTOR_ZIP
+
+5-digit, 9-digit ZIPs; foreign postal codes
+
+```{r}
+table(nchar(singleContributor$CONTRIBUTOR_ZIP), useNA = "ifany")
+```
+
+```{r}
+zipLengthByState <-
+  singleContributor                             %>%
+  mutate(zipLength = nchar(CONTRIBUTOR_ZIP))    %>%
+  group_by(CONTRIBUTOR_STATE, zipLength)        %>%
+  count()                                       %>%
+  ungroup()                                     %>%
+  spread(zipLength, n, fill = 0)                %>%
+  arrange(CONTRIBUTOR_STATE)
+```
+
+```{r}
+write_xlsx(zipLengthByState,
+           paste0(EXPLORE_DIR, ORG, "-", TAG, "-ZipLengthByState.xlsx"))
+```
+
+## ELECTION_CODE
+
+```{r}
+sum(!is.na(singleContributor$ELECTION_CODE))
+```
+
+```{r}
+singleContributor      %>%
+  count(ELECTION_CODE) %>%
+  Show(bigMark = ",")
+```
+
+```{r}
+electionCodes <-
+  singleContributor           %>%
+    filter(!is.na(singleContributor$ELECTION_CODE))
+
+write_xlsx(head(electionCodes, 1000),
+           paste0(EXPLORE_DIR, ORG, "-", TAG, "-Election-Codes.xlsx"))
+```
+
+## ELECTION_OTHER_DESCRIPTION
+
+```{r}
+sum(is.na(singleContributor$ELECTION_OTHER_DESCRIPTION))
+```
+
+## CONTRIBUTION_DATE and CONTRIBUTION_AMOUNT
+
+```{r}
+c( min(singleContributor$CONTRIBUTION_DATE), max(singleContributor$CONTRIBUTION_DATE) )
+```
+
+```{r}
+monthCounts <-
+  singleContributor  %>%
+  mutate(yyyy = str_sub(CONTRIBUTION_DATE, 1, 4),
+         mm   = str_sub(CONTRIBUTION_DATE, 5, 6))    %>%
+  group_by(yyyy, mm)  %>%
+  summarize(n = n(), .groups = "drop")  %>%
+  ungroup()           %>%
+  spread(mm, n)
+
+monthCounts %>%
+  Show(bigMark = ",")
+```
+
+```{r}
+monthAmounts <-
+  singleContributor  %>%
+  mutate(yyyy = str_sub(CONTRIBUTION_DATE, 1, 4),
+         mm   = str_sub(CONTRIBUTION_DATE, 5, 6))    %>%
+  group_by(yyyy, mm)  %>%
+  summarize(totalAmount =sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            .groups = "drop")  %>%
+  ungroup()   %>%
+  spread(mm, totalAmount)
+
+monthAmounts %>% Show(bigMark = ",")
+```
+
+```{r}
+dayAmounts <-
+  singleContributor  %>%
+  group_by(CONTRIBUTION_DATE)  %>%
+  summarize(nRecord     = n(),
+            totalAmount = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            nName       = n_distinct(FullName),
+            nEmployers   = n_distinct(CONTRIBUTOR_EMPLOYER),
+            nOccupations = n_distinct(CONTRIBUTOR_OCCUPATION),
+            nEarmarks    = n_distinct(MEMO_TEXT_DESCRIPTION),       
+            .groups = "drop")  %>%
+  ungroup()                    %>%
+  arrange(CONTRIBUTION_DATE)
+
+nrow(dayAmounts)
+```
+
+```{r}
+dayAmounts %>% head() %>% Show()
+```
+
+```{r}
+write_xlsx(dayAmounts,
+           paste0(EXPLORE_DIR, ORG, "-", TAG, "-Contributions-by-Day.xlsx"))
+```
+
+```{r}
+sum(is.na(singleContributor$CONTRIBUTION_DATE))
+```
+
+```{r}
+sum(is.na(singleContributor$CONTRIBUTION_AMOUNT))
+```
+
+## CONTRIBUTION_PURPOSE
+
+```{r}
+sum(is.na(singleContributor$CONTRIBUTION_PURPOSE))
+```
+
+```{r}
+table(singleContributor$CONTRIBUTION_PURPOSE,
+      singleContributor$ENTITY_TYPE)
+```
+
+
+```{r}
+purposeCounts <-
+  singleContributor              %>%
+  group_by(ENTITY_TYPE,
+           CONTRIBUTION_PURPOSE) %>%
+  summarize(nRecord      = n(),
+            TotalAmount  = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minAmount    = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            maxAmount    = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minDate      = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+            maxDate      = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+            nName        = n_distinct(FullName),
+            nEmployers   = n_distinct(CONTRIBUTOR_EMPLOYER),
+            nOccupations = n_distinct(CONTRIBUTOR_OCCUPATION), 
+            nEarmarks    = n_distinct(MEMO_TEXT_DESCRIPTION),
+            .groups = "drop")  %>%
+  ungroup()
+
+purposeCounts %>%
+  Show(bigMark = ",")
+
+write_xlsx(purposeCounts,
+           paste0(EXPLORE_DIR, ORG, "-", TAG, "-Purpose-Counts.xlsx"))
+```
+
+## CONTRIBUTOR_EMPLOYER
+
+```{r}
+sum(is.na(singleContributor$CONTRIBUTOR_EMPLOYER))
+```
+
+```{r}
+employerStats <-
+  singleContributor              %>%
+  
+  group_by(CONTRIBUTOR_EMPLOYER) %>%
+  summarize(nRecord = n(),
+            TotalAmount  = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minAmount    = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            maxAmount    = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minDate      = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+            maxDate      = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+            nName        = n_distinct(FullName),
+            nOccupations = n_distinct(CONTRIBUTOR_OCCUPATION),
+            nEarmarks    = n_distinct(MEMO_TEXT_DESCRIPTION),
+            nState       = n_distinct(CONTRIBUTOR_STATE),
+            nSource      = n_distinct(Source),
+            .groups = "drop")    %>%
+  ungroup()                      %>%
+  arrange(-TotalAmount)
+
+nrow(employerStats)
+```
+
+```{r}
+employerStats %>% head(5) %>% Show()
+```
+
+```{r}
+write_csv(employerStats,
+          paste0(EXPLORE_DIR, ORG, "-", TAG, "-Employer-Stats.csv"),
+          quote = "all")
+```
+
+```{r}
+table(employerStats$nName)
+```
+
+```{r}
+table(employerStats$nState)
+```
+
+## CONTRIBUTOR_OCCUPATION
+
+```{r}
+sum(is.na(singleContributor$CONTRIBUTOR_OCCUPATION))
+```
+
+````{r}
+occupationStats <-
+  singleContributor                %>%
+  group_by(CONTRIBUTOR_OCCUPATION) %>%
+  summarize(nRecord = n(),
+            TotalAmount  = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minAmount    = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            maxAmount    = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minDate      = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+            maxDate      = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+            nName        = n_distinct(FullName),
+            nEmployers   = n_distinct(CONTRIBUTOR_EMPLOYER),   
+            nEarmarks    = n_distinct(MEMO_TEXT_DESCRIPTION),
+            .groups = "drop")    %>%
+  ungroup()                      %>%
+  arrange(-TotalAmount)
+
+nrow(occupationStats)
+```
+
+```{r}
+occupationStats %>% head(5) %>% Show()
+```
+
+```{r}
+write_csv(occupationStats,
+          paste0(EXPLORE_DIR, ORG, "-", TAG, "-Occupation-Stats.csv"),
+          quote = "all")
+```
+
+## MEMO_CODE
+
+```{r}
+sum(is.na(singleContributor$MEMO_CODE))
+```
+
+## MEMO_TEXT_DESCRIPTION:  Earmarks
+
+```{r}
+overallTotals <-
+  singleContributor                            %>%
+  summarize(nFECFilings        = n_distinct(Source),
+
+            nRecord            = n(),
+            TotalAmount        = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minAmount          = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            maxAmount          = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minDate            = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+            maxDate            = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+            
+            nName              = n_distinct(FullName),
+            nEmployers         = n_distinct(CONTRIBUTOR_EMPLOYER),
+            nOccupations       = n_distinct(CONTRIBUTOR_OCCUPATION), 
+
+            # These can be wrong when there are replacement .fec file(s)
+            # not included in a daily FEC electronic .zip
+            firstFECFiling     = min(Source, na.rm = TRUE),
+            lastFECFiling      = max(Source, na.rm = TRUE)
+           )                   %>%  
+  
+   mutate(
+          Days   = as.numeric( ymd(maxDate) - ymd(minDate) + 1),
+          PerDay = round(nRecord / Days, 2),
+          CONTRIBUTION_PURPOSE  = NA,
+          MEMO_TEXT_DESCRIPTION = "TOTAL",
+          committee             = "",
+        )                       %>%
+  
+  select(nFECFilings,
+
+         nRecord,
+         TotalAmount,
+         nName,
+         nEmployers,
+         nOccupations,
+
+         min    = minAmount,
+         max    = maxAmount,
+
+         start  = minDate,
+         end    = maxDate,
+         Days, 
+         PerDay,
+         CONTRIBUTION_PURPOSE,
+         MEMO_TEXT_DESCRIPTION,
+         committee,
+         firstFECFiling, lastFECFiling)         
+```
+
+```{r}
+earmarkSummary <-
+  singleContributor                            %>%
+  mutate(committee =
+           MEMO_TEXT_DESCRIPTION               %>%  # should be an easier way
+           stringi::stri_reverse()             %>%  # to extract committee
+           str_extract("(?<=\\))(.*?)(?=\\()") %>%
+           stringi::stri_reverse()
+        )                      %>%                                  
+  group_by(CONTRIBUTION_PURPOSE,
+           MEMO_TEXT_DESCRIPTION,
+           committee)          %>%
+  summarize(nFECFilings        = n_distinct(Source),
+
+            nRecord            = n(),
+            
+            TotalAmount        = sum(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            minAmount          = min(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            maxAmount          = max(CONTRIBUTION_AMOUNT, na.rm = TRUE),
+            
+            minDate            = min(CONTRIBUTION_DATE,   na.rm = TRUE),
+            maxDate            = max(CONTRIBUTION_DATE,   na.rm = TRUE),
+            
+            nName              = n_distinct(FullName),
+            nEmployers         = n_distinct(CONTRIBUTOR_EMPLOYER),
+            nOccupations       = n_distinct(CONTRIBUTOR_OCCUPATION),        
+
+            # These can be wrong when there are replacement .fec file(s)
+            # not included in a daily FEC electronic .zip
+            firstFECFiling     = min(Source, na.rm = TRUE),
+            lastFECFiling      = max(Source, na.rm = TRUE),
+            .groups = "drop"
+           )                   %>%
+  ungroup()                    %>%
+  mutate(
+          Days   = as.numeric( ymd(maxDate) - ymd(minDate) + 1),
+          PerDay = round(TotalAmount / Days, 2)
+        )                      %>%
+  select(nFECFilings,
+
+         nRecord,
+         TotalAmount,
+         
+         nName,
+         nEmployers,
+         nOccupations,
+
+         min    = minAmount,
+         max    = maxAmount,
+
+         start  = minDate,
+         end    = maxDate,
+         Days, 
+         PerDay,
+         everything())         
+```                                              
+
+```{r}
+earmarkSummaryWithTotals <-
+  bind_rows(overallTotals,
+            earmarkSummary)  %>%
+  arrange(-TotalAmount)
+
+nrow(earmarkSummaryWithTotals)
+```
+
+```{r}
+earmarkSummaryWithTotals %>% head(20) %>% Show()
+```
+
+```{r}
+write_xlsx(earmarkSummaryWithTotals,
+           paste0(EXPLORE_DIR, ORG, "-", TAG, "-Earmarks-Memo-Text.xlsx"))
+```
+
+## Source
+
+```{r}
+sum(is.na(singleContributor$Source))
+```
+
+```{r}
+sourceCounts <-
+  singleContributor      %>%
+    count(Source)
+
+nrow(sourceCounts)
+```
+
+```{r}
+sourceCounts %>% Show(bigMark = ",")
+```
+
+```{r}
+write_xlsx(sourceCounts,
+           paste0(EXPLORE_DIR, ORG, "-", TAG, "-Source-Counts.xlsx"))
+```
+
+# Fini {.tabset .tabset-fade .tabset-pills}
+
+## {.active}
+
+## Session Info
+
+```{r epilogSessionInfo}
+devtools::session_info()
+```
+
+</div>
+
+```{r, echo=FALSE}
+time.2 <- Sys.time()
+processingTime <- paste("Processing time:",
+                        sprintf("%.1f",
+                                as.numeric(difftime(time.2, time.1,
+                                                    units="secs"))), "secs\n")
+```
+
+`r processingTime`
+
+`r format(Sys.time(), "%Y-%m-%d %H:%M")`

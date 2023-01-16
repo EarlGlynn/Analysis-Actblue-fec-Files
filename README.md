@@ -1,2 +1,3 @@
-# Analysis-Actblue-fec-Files
-Analysis-of-ActBlue-fec-files
+# Analysis of ActBlue .fec Files by Election Cycle
+
+Work in progress

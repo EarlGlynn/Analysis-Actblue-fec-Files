@@ -1,0 +1,138 @@
+---
+title: "Explore Contribution records -- Driver"
+author: "Earl F Glynn<br><small>watchdoglab.substack.com</small>"     
+date: "<small>`r Sys.Date()`</small>"
+output:
+  html_document:
+    code_download: true     
+    theme: cerulean
+    toc: yes
+    toc_depth:  3
+    toc_float:
+      collapsed:  yes
+      smooth_scroll: yes
+    number_sections: yes
+    code_folding:  show         
+---
+
+```{r setup, echo = FALSE}
+# http://biostat.mc.vanderbilt.edu/wiki/Main/KnitrHtmlTemplate
+require(Hmisc)    # provides knitrSet and other functions
+knitrSet(lang = 'markdown',   # If using blogdown: knitrSet(lang='blogdown')
+         fig.align = 'left',
+         w = 6.5,
+         h = 4.5,
+         cache = FALSE)
+```
+
+`r hidingTOC(buttonLabel = "Outline")`
+
+```{r setup2, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  comment    = NA)
+
+time.1 <- Sys.time()
+```
+
+# Setup {.tabset .tabset-fade .tabset-pills}
+
+##  {.active}
+
+```{r}
+options(knitr.duplicate.label = "allow")
+```
+
+## Constants
+
+```{r}
+EXCEL_LIMIT <- 2^20
+```
+
+## Packages 
+
+```{r}
+library(tidyverse)
+
+library(readxl)     # read_xlsx
+library(writexl)    # write_xlsx
+
+library(rmarkdown)
+```
+
+## Helper function
+
+```{r}
+Show <- function(data, caption = "", bigMark = "", ...)
+{
+  data                                            %>%
+  kable("html", caption = caption,
+        format.args = list(big.mark = bigMark))   %>%
+  kable_styling(bootstrap_options = c("striped", "bordered", "condensed"),
+                position = "left", 
+                full_width = FALSE, ...)
+}
+```
+
+# Explore FEC Contributor File
+
+Initial failure with 2020 when 1.1 GB vector could not be allocated. 
+
+Possibly cause is memory fragmentation with only 64 GB memory?
+
+```{r}
+years <- c("2014", "2016", "2018", "2020", "2022")
+
+for (year in years)
+{
+  ORG <- "ActBlue"     #####
+  TAG <- year          #####
+
+  cat(format(Sys.time(), "%Y-%m-%d %H:%M"), ORG, TAG, "\n")
+
+  TARGET_DIR <- paste0("K:/Data-Farm/", ORG, "/", TAG, "/")
+
+  rmarkdown::render("100-Explore-Contributors-Template.Rmd",
+                  output_format =  
+                  html_document(theme           = "cerulean",
+                                toc             = TRUE,
+                                toc_format      = TRUE,
+                                number_sections = TRUE,
+                                code_download   = TRUE,
+                                code_folding    = "hide"),
+                  output_file = paste0("100-", ORG, "-", TAG, "-Explore-Contributors.html"),
+                  output_dir  = TARGET_DIR,
+                  quiet       = TRUE,
+                  params = list(
+                    ORG = ORG,
+                    TAG = TAG
+                  )
+                 )
+}
+
+cat(format(Sys.time(), "%Y-%m-%d %H:%M"), "\n")
+```                                                    
+
+# Fini {.tabset .tabset-fade .tabset-pills}
+
+## {.active}
+
+## Session Info 
+
+```{r epilogSessionInfo}
+devtools::session_info()         
+```
+
+</div>
+
+```{r, echo=FALSE}
+time.2 <- Sys.time()
+processingTime <- paste("Processing time:", 
+                        sprintf("%.1f",
+                                as.numeric(difftime(time.2, time.1,
+                                                    units="secs"))), "secs\n")
+```
+
+`r processingTime`
+
+`r format(Sys.time(), "%Y-%m-%d %H:%M")`
